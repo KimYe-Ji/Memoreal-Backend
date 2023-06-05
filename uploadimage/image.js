@@ -5,6 +5,8 @@ const path = require('path');
 const mysql = require('mysql2/promise');
 const app = express();
 const port = 3000;
+const {spawn} = require('child_process');
+const fs = require('fs');
 
 const {
   S3
@@ -44,6 +46,7 @@ const upload = multer({
     limits: { fileSize: 10 * 1024 * 1024 },
 });
 */
+// 이미지 업로드
 const upload = multer({
   storage: multerS3({
     s3: s3,
@@ -52,11 +55,210 @@ const upload = multer({
     contentType: multerS3.AUTO_CONTENT_TYPE,
     key: function (req, file, cb) {
       //cb(null, `${req.params.id}/${Date.now()}_${file.originalname}`)
-      cb(null, `${Date.now()}_${file.originalname}`)
+      cb(null, `images/${Date.now()}_${file.originalname}`) // 앞에 폴더명 'folder/' 붙이면 폴더로 이동
     },
   }),
   limits: { fileSize: 5 * 1024 * 1024 },
 });
+
+// AI ) 1. 이미지 input에 저장하기
+const aiupload = multer({
+  storage: multer.diskStorage({
+    destination(req, file, done) {
+      done(null, __dirname + '/input'); // /home/ubuntu/memoreal/yolact/input
+    },
+    filename(req, file, done) {
+      const ext = path.extname(file.originalname);
+      done(null, 'ai_' + path.basename(file.originalname, ext) + Date.now() + ext); // ai_filename20230605.jpg
+    },
+  }),
+  limits: { fileSize: 10 * 1024 * 1024 },
+});
+
+app.get('/ai', (req, res) => {
+  res.sendFile(path.join(__dirname, 'multipart2.html'));
+});
+
+/*
+// 이미지 업로드를 위한 라우팅 설정
+app.post('/ai', aiupload.single('image'), async (req, res, next) => {
+  let imageUrl = '';
+  
+  const directoryPath = 'C:/Users/dywjd/Desktop/nodejs/uploadimage/extracts';  // 업로드할 디렉토리 경로
+  let dataToSend;
+  let json_ai = '';
+  let json_s3 = '';
+
+
+  // 2. process.py 실행하기
+  const python = spawn('python', ['C:/Users/dywjd/Desktop/nodejs/uploadimage/helloworld.py']);
+
+  // stdout의 'data'이벤트리스너로 실행결과를 받음
+  python.stdout.on('data', (data) => {
+      dataToSend = data.toString();
+      console.log('data' + dataToSend);
+      json_ai = 'ok';
+      console.log(json_ai);
+  })
+
+  // 에러 발생 시, stderr의 'data'이벤트리스너로 실행결과를 받음
+  python.stderr.on('data', (data) => {
+    console.log('error '+ data.toString());
+  });
+
+  python.on('close', (code) => {
+    //res.send(dataToSend);
+    console.log('close');
+  })
+
+  console.log(`json_ai ${json_ai}`);
+  // 3. output 이미지 S3에 올리고 프론트에 전달
+  
+  // 업로드할 디렉토리 경로
+  //const directoryPath = '/extracts';
+
+
+  // 디렉토리 내의 파일 업로드
+  fs.readdir(directoryPath, (err, files) => {
+    if (err) {
+      console.log(err);
+      throw err;
+    }
+
+    files.forEach(file => {
+      const filePath = path.join(directoryPath, file);
+      const key = `extracts/${file}`;
+
+      fs.readFile(filePath, (err, data) => {
+        if (err) throw err;
+
+        const params = {
+          Bucket: 'memoreal-bucket',
+          Key: key,
+          Body: data
+        };
+
+
+        s3.putObject(params, (err, data) => {
+          if (err) throw err;
+
+          imageUrl = data.Location; // S3에 업로드 된 URL
+          console.log(`파일 ${file}이(가) 성공적으로 업로드되었습니다.`, data.Location);
+        });
+      });
+    });
+  });
+*/
+/*
+
+  try{
+      const [result] = await connection.query('INSERT INTO memorealdb.image(DiaryId, ImageUrl) VALUES (?, ?)', [1, imageUrl]);
+      console.log(result);
+      json_s3 = imageUrl;
+      
+  } catch (error) {
+      console.error(error);
+      return res.status(500).json({ error: error });
+  }
+
+  */
+
+/*
+  res.status(200).json({
+    imageUrl : json_s3,
+    ai : json_ai,
+    //userID : 
+  });
+});
+
+*/
+app.post('/ai', aiupload.single('image'), async (req, res, next) => {
+  let imageUrl = '';
+  const directoryPath = 'C:/Users/dywjd/Desktop/nodejs/uploadimage/extracts';  // 업로드할 디렉토리 경로
+  let json_ai = '';
+  let json_s3 = '';
+
+  const uploadFilesToS3 = async () => {
+    const files = await fs.promises.readdir(directoryPath);
+    const uploadPromises = files.map(file => {
+      const filePath = path.join(directoryPath, file);
+      const key = `extracts/${file}`;
+
+      return fs.promises.readFile(filePath)
+        .then(data => {
+          const params = {
+            Bucket: 'memoreal-bucket',
+            Key: key,
+            Body: data
+          };
+
+          return new Promise((resolve, reject) => {
+            s3.putObject(params, (err, data) => {
+              if (err) reject(err);
+
+              imageUrl = data.Location;
+
+              console.log(`파일 ${file}이(가) 성공적으로 업로드되었습니다.`, imageUrl);
+              resolve();
+            });
+          });
+        });
+    });
+
+    await Promise.all(uploadPromises);
+  };
+
+  const executePythonScript = () => {
+    return new Promise((resolve, reject) => {
+      const python = spawn('python', ['C:/Users/dywjd/Desktop/nodejs/uploadimage/helloworld.py']);
+
+      python.stdout.on('data', (data) => {
+        console.log('data', data.toString());
+        json_ai = 'ok';
+        console.log('json_ai', json_ai);
+      });
+
+      python.stderr.on('data', (data) => {
+        console.log('error', data.toString());
+      });
+
+      python.on('close', (code) => {
+        console.log('close');
+        resolve();
+      });
+    });
+  };
+
+  const saveImageUrlToDatabase = async (imageUrl) => {
+    try {
+      const [result] = await connection.query('INSERT INTO datamanage.Image(DiaryId, ImageUrl) VALUES (?, ?)', [1, imageUrl]);
+      json_s3 = 'ok';
+      console.log(result);
+    } catch (error) {
+      console.error(error);
+      throw error;
+    }
+  };
+
+
+  try {
+    await executePythonScript();
+    await uploadFilesToS3();
+    await saveImageUrlToDatabase(imageUrl);
+
+    res.status(200).json({
+      imageUrl: imageUrl,
+      ai: json_ai,
+      tos3: json_s3,
+    });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: error });
+  }
+});
+
+
+
 
 app.get('/images', (req, res) => {
     //console.log(process.env);
@@ -113,7 +315,7 @@ app.post('/images', upload.single('image'), async (req, res, next) => {
     const imageUrl = req.file.location;
 
     try{
-        const [result] = await connection.query('INSERT INTO memorealdb.image(DiaryId, ImageUrl) VALUES (?, ?)', [1, imageUrl]);
+        const [result] = await connection.query('INSERT INTO datamanage.Image(DiaryId, ImageUrl) VALUES (?, ?)', [1, imageUrl]);
         console.log(result);
         res.status(200).json({ 
           // id : req.params.id,
@@ -132,6 +334,8 @@ app.post('/images', upload.single('image'), async (req, res, next) => {
         res.status(500).json({ error: error });
     }
 });
+
+
 
 app.listen(port, () => {
   console.log(`Server listening at http://localhost:${port}`);
