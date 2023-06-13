@@ -65,7 +65,7 @@ const upload = multer({
 const aiupload = multer({
   storage: multer.diskStorage({
     destination(req, file, done) {
-      done(null, __dirname + '/input'); // /home/ubuntu/memoreal/yolact/input
+      done(null, '/home/ubuntu/memoreal/yolact/input'); // /home/ubuntu/memoreal/yolact/input
     },
     filename(req, file, done) {
       const ext = path.extname(file.originalname);
@@ -174,7 +174,7 @@ app.post('/ai', aiupload.single('image'), async (req, res, next) => {
 */
 app.post('/ai', aiupload.single('image'), async (req, res, next) => {
   let imageUrl = '';
-  const directoryPath = 'C:/Users/dywjd/Desktop/nodejs/uploadimage/extracts';  // 업로드할 디렉토리 경로
+  const directoryPath = '/home/ubuntu/memoreal/yolact/extracts';  // 업로드할 디렉토리 경로
   let json_ai = '';
   let json_s3 = '';
 
@@ -182,21 +182,25 @@ app.post('/ai', aiupload.single('image'), async (req, res, next) => {
     const files = await fs.promises.readdir(directoryPath);
     const uploadPromises = files.map(file => {
       const filePath = path.join(directoryPath, file);
-      const key = `extracts/${file}`;
+      const key = `extracts/${Date.now()}${file}`;
 
       return fs.promises.readFile(filePath)
         .then(data => {
           const params = {
             Bucket: 'memoreal-bucket',
             Key: key,
-            Body: data
+            Body: data,
+		  ACL: 'public-read',
+		  ContentType: 'image/png'
           };
 
           return new Promise((resolve, reject) => {
             s3.putObject(params, (err, data) => {
               if (err) reject(err);
+		    //imageUrl = data.location;
 
-              imageUrl = data.Location;
+              imageUrl = `https://${params.Bucket}.s3.ap-northeast-2.amazonaws.com/${key}`;
+		    //console.log(data);
 
               console.log(`파일 ${file}이(가) 성공적으로 업로드되었습니다.`, imageUrl);
               resolve();
@@ -210,7 +214,8 @@ app.post('/ai', aiupload.single('image'), async (req, res, next) => {
 
   const executePythonScript = () => {
     return new Promise((resolve, reject) => {
-      const python = spawn('python', ['C:/Users/dywjd/Desktop/nodejs/uploadimage/helloworld.py']);
+	    const python = spawn('python3', ['/home/ubuntu/memoreal/yolact/pipeline_cpu.py', '--Category=person']);
+	    //const python = spawn('python3', ['/home/ubuntu/Memoreal-Backend/uploadimage/helloworld.py']);
 
       python.stdout.on('data', (data) => {
         console.log('data', data.toString());
@@ -244,6 +249,7 @@ app.post('/ai', aiupload.single('image'), async (req, res, next) => {
   try {
     await executePythonScript();
     await uploadFilesToS3();
+	  console.log(`imageUrl: ${imageUrl}`);
     await saveImageUrlToDatabase(imageUrl);
 
     res.status(200).json({
